@@ -35,65 +35,120 @@
             y: null
         }
 
+        this.options = {
+            minBubbleRadius : 10,
+            maxBubblesRadius: 50,
+            minBubblesSpeed: 1,
+            maxBubbleSpeed: 8,
+            borderSize: 5
+        };
+        this.movingFlag = true;
+        this.requestAnimationFrame = null;
+
         this.bubbles = [];
     }
     Game.prototype = {
         start: function() {
+            this.drawer = new Drawer(this.w, this.h);
+            this.attachTo(document.body);
+
+            // todo remove event listener
             $('body').on('contextmenu', '#field', function(e){ return false; });
 
-            this.drawer = new Drawer();
-            this.drawer.field.canvas.width = this.w;
-            this.drawer.field.canvas.height = this.h;
-            this.drawer.field.w = this.w;
-            this.drawer.field.h = this.h;
-
-            this.addClickListener();
+            this.addClickListener(this.drawer.field.canvas);
             this.step();
         },
-        addClickListener: function() {
-            var that = this;
+        pause: function() {
+            this.movingFlag = !this.movingFlag;
+            if(this.movingFlag) {
+                this.step();
+            }
+        },
+        attachTo : function (el) {
+            // todo attach this.drawer.el / Done
+            el.appendChild(this.drawer.field.canvas);
+        },
+        addClickListener: function(el) {
+            var that = this,
+                ctrlFlag = false;
             var position = {
               x: 0,
               y: 0
             };
-            $('#field').on('mouseup', function(ev){
-                ev.preventDefault();
-                var target = ev.target,
-                    flagToMove = true;
-                position.x = ev.offsetX;
-                position.y = ev.offsetY;
-
-                if(ev.which == 1) {
-                    for(var i in that.bubbles) {
+            var keys = {
+                1 : function(){
+                    var i = 0, bubblesQuantity = that.bubbles.length,
+                        isClickedToEmpty = true;
+                    for(i; i < bubblesQuantity; i++) {
                         if(that.isClickedInCircle(position, that.bubbles[i])) {
-                            flagToMove = false;
-                            if(!that.bubbles[i].marked) {
-                                for(var j in that.bubbles) {
-                                    that.bubbles[j].marked = false;
+                            // todo WTF?  / Done
+                            isClickedToEmpty = false;
+
+                            if(!ctrlFlag) {
+                                if(!that.bubbles[i].marked) {
+                                    that.clearBubblesMark();
+                                    that.bubbles[i].marked = true;
+                                } else {
+                                    that.bubbles[i].marked = false;
                                 }
-                                that.bubbles[i].marked = true;
                             } else {
-                                that.bubbles[i].marked = false;
+                                if(!that.bubbles[i].marked) {
+                                    that.bubbles[i].marked = true;
+                                }
                             }
                         }
                     }
-                    if(flagToMove) {
-                        that.movePosition.x = ev.offsetX;
-                        that.movePosition.y = ev.offsetY;
-                        that.moveBubbles();
+                    i = 0;
+                    for(i; i < bubblesQuantity; i++) {
+                        if(isClickedToEmpty && that.bubbles[i].marked) {
+                            // todo simplify / Done
+                            that.bubbles[i].setTarget(position.x, position.y);
+                        }
                     }
-                } else if(ev.which == 3) {
+                    that.moveBubbles();
+                },
+                3 : function(){
                     that.addBubble(position);
+                },
+                80 : function() {
+                    that.pause();
+                },
+                112 : function() {
+                    that.pause();
                 }
-                that.setBubblesCondition();
+            };
+
+            $(el).on('mouseup', function(ev){
+                ev.preventDefault();
+                var target = ev.target;
+                position.x = ev.offsetX;
+                position.y = ev.offsetY;
+
+                keys[ev.which]();
+
+                that.setBubblesMarked();
                 that.drawer.draw(that.bubbles);
             });
+            document.addEventListener('keydown', function(ev){
+                if(keys[ev.which]) {
+                    keys[ev.which]();
+                }
+                if(ev.which == 17) {
+                    ctrlFlag = true;
+                }
+            }, false);
+            document.addEventListener('keyup', function(ev){
+                if(ev.which == 17) {
+                    ctrlFlag = false;
+                }
+            }, false);
         },
         addBubble: function(position) {
-            var radius = this.getRandomNumber(10, 50),
+            // todo remove magic numbers / Done
+            var radius = this.getRandomNumber(this.options.minBubbleRadius, this.options.maxBubblesRadius),
                 color = this.getRandomColor(),
-                speed = 200;
-            var bubble = new Bubble(position, radius, color, speed);
+                speed = this.getRandomNumber(this.options.minBubblesSpeed, this.options.maxBubbleSpeed),
+                bubble = new Bubble(position, radius, color, speed);
             this.bubbles.push(bubble);
         },
         getRandomColor: function() {
@@ -103,29 +158,60 @@
                 color += letters[Math.floor(Math.random() * 16)];
             }
             return color;
+            // (1048576 + Math.floor(Math.random() * 15728639)).toString(16)
+            // ('000000' + Math.floor(Math.random() * 16777215).toString(16)).substr(-6)
         },
         getRandomNumber: function(min, max) {
             return Math.floor(Math.random() * (max - min + 1)) + min;
         },
         isClickedInCircle: function(position, circle) {
-           return (Math.pow((position.y - circle.y), 2) + Math.pow((position.x - circle.x), 2)) <= Math.pow(circle.radius + 5, 2 );
+           return (Math.pow((position.y - circle.y), 2) + Math.pow((position.x - circle.x), 2)) <= Math.pow(circle.radius + this.options.borderSize, 2 );
         },
         step: function() {
             var that = this;
-            requestAnimationFrame(function() { that.step(); });
+            this.requestAnimationFrame = requestAnimationFrame(function() {
+                if(that.movingFlag) {
+                    that.step();
+                }
+            });
+
+            for(var i in that.bubbles) {
+                if(that.bubbles[i].moveX && that.bubbles[i].moveY) {
+                    if(!that.isFinishPosition(that.bubbles[i])) {
+                        that.bubbles[i].x += this.bubbles[i].step.x * that.bubbles[i].speed;
+                        that.bubbles[i].y += this.bubbles[i].step.y * that.bubbles[i].speed;
+                    }
+                }
+            }
             that.drawer.draw(that.bubbles);
         },
-        setBubblesCondition: function() {
+        setBubblesMarked: function() {
             for(var i in this.bubbles) {
                 this.bubbles[i].toggleMarked();
             }
         },
         moveBubbles: function() {
+            var distance = 0;
             for(var i in this.bubbles) {
                 if(this.bubbles[i].marked) {
-                    this.bubbles[i].moveX = this.movePosition.x;
-                    this.bubbles[i].moveY = this.movePosition.y;
+                    distance = Math.sqrt(Math.pow(this.bubbles[i].moveX - this.bubbles[i].x, 2) + Math.pow(this.bubbles[i].moveY - this.bubbles[i].y, 2));
+                    this.bubbles[i].step = {
+                        x: (this.bubbles[i].moveX - this.bubbles[i].x) / distance,
+                        y: (this.bubbles[i].moveY - this.bubbles[i].y) / distance
+                    };
                 }
+            }
+        },
+        isFinishPosition: function(bubble) {
+            // todo remove magic numbers / Done
+            return (bubble.moveX > (bubble.x - bubble.targetZone) && bubble.moveX < (bubble.x + bubble.targetZone)) &&
+                (bubble.moveY > (bubble.y - bubble.targetZone) && bubble.moveY < (bubble.y + bubble.targetZone));
+        },
+        clearBubblesMark: function() {
+            var i = 0, bubblesQuantity = this.bubbles.length;
+            // todo separate / Done
+            for(i; i < bubblesQuantity; i++) {
+                this.bubbles[i].marked = false;
             }
         }
     };
@@ -139,29 +225,41 @@
         this.speed = speed;
         this.borderColor = color;
         this.marked = false;
-        this.moving = false;
+        this.step = {
+            x : 0,
+            y : 0
+        };
+        this.targetZone = this.speed / 2;
     }
     Bubble.prototype = {
-        bubbleMover: function() {
-
-        },
         toggleMarked: function() {
             if(this.marked){
                 this.borderColor = '#CCFF99';
             } else {
                 this.borderColor = this.color;
             }
+        },
+        setTarget : function (x, y) {
+            // todo implement this / Done
+            this.moveX = x;
+            this.moveY = y;
         }
     };
 
-    function Drawer() {
+    function Drawer(w, h) {
+        this.DOUBLE_PI = 2 * Math.PI;
         this.field = {
             canvas: document.createElement('canvas'),
-            w: null,
-            h: null
+            w: w,
+            h: h
         };
+        // todo don't touch inner data / Done
+
+        this.field.canvas.width = this.field.w;
+        this.field.canvas.height = this.field.h;
         this.field.canvas.id = "field";
-        document.body.appendChild(this.field.canvas);
+
+        // todo only export element / Done
         this.field.context = this.field.canvas.getContext("2d");
 
     }
@@ -175,7 +273,7 @@
         },
         drawBubble: function(bubble) {
             this.field.context.beginPath();
-            this.field.context.arc(bubble.x, bubble.y, bubble.radius, 0, 2 * Math.PI, false);
+            this.field.context.arc(bubble.x, bubble.y, bubble.radius, 0, this.DOUBLE_PI, false);
             this.field.context.fillStyle = bubble.color;
             this.field.context.fill();
             this.field.context.lineWidth = 5;
@@ -183,7 +281,6 @@
             this.field.context.stroke();
         }
     };
-
 
     var myGame = new Game(600, 300);
 
